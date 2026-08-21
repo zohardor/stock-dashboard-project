@@ -1,1 +1,28 @@
+# יש להעביר קובץ זה לנתיב: .github/workflows/screener.yml בריפו שלך
 
+name: Daily Stock Screener
+
+on:
+  schedule:
+    # 21:45 UTC = כשעה אחרי סגירת המסחר הרגיל בארה"ב (בשעון קיץ; בחורף זה קרוב יותר לסגירה)
+    - cron: "45 21 * * 1-5"
+  workflow_dispatch: {} # מאפשר גם הרצה ידנית מלשונית Actions ב-GitHub
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r screener/requirements.txt
+
+      - name: Run screener
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python screener/screener.py
