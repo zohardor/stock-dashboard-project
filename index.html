@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>דשבורד מניות - Stop Loss / Take Profit (Supabase)</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --card2: #182234;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --green: #22c55e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: linear-gradient(160deg, #0f172a, #111827);
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: var(--text);
+    padding: 28px 16px 60px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+  h1 { font-size: 22px; margin: 0; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .add-btn {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #0f172a;
+    font-weight: bold;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .add-btn:hover { opacity: 0.9; }
+  .add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .summary-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .summary-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .summary-card .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .summary-card .value { font-size: 20px; font-weight: bold; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .stock-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    position: relative;
+  }
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .ticker-input {
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: bold;
+    width: 60%;
+    padding: 2px 0;
+    border-bottom: 1px dashed transparent;
+  }
+  .ticker-input:focus { outline: none; border-bottom-color: var(--accent); }
+  .ticker-input::placeholder { color: var(--muted); font-weight: normal; }
+  .market-badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    margin-right: 6px;
+    font-weight: bold;
+  }
+  .market-badge.regular { background: rgba(34,197,94,0.15); color: var(--green); }
+  .market-badge.pre { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .market-badge.post { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .market-badge.closed { background: rgba(148,163,184,0.15); color: var(--muted); }
+  .market-badge.error { background: rgba(239,68,68,0.15); color: var(--red); }
+  .live-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .live-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .live-toggle input { cursor: pointer; }
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted); display: inline-block;
+  }
+  .live-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .remove-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .remove-btn:hover { color: var(--red); border-color: var(--red); }
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 10px;
+  }
+  .field { display: flex; flex-direction: column; }
+  .field.full { grid-column: 1 / -1; }
+  .field label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .field input {
+    padding: 8px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--card2);
+    color: var(--text);
+    font-size: 14px;
+    width: 100%;
+  }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  .divider { height: 1px; background: var(--border); margin: 14px 0; }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--card2);
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .stat-row .stat-label { color: var(--muted); }
+  .stat-row .stat-value { font-weight: bold; font-size: 15px; }
+  .stat-value.green { color: var(--green); }
+  .stat-value.red { color: var(--red); }
+  .bar-wrap {
+    margin-top: 10px;
+    position: relative;
+    height: 8px;
+    background: var(--card2);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(90deg, var(--red), var(--amber), var(--green));
+  }
+  .bar-marker {
+    position: absolute; top: -3px; width: 3px; height: 14px;
+    background: #fff; border-radius: 2px;
+  }
+  .bar-labels {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--muted); margin-top: 4px;
+  }
+  .empty-state {
+    text-align: center; color: var(--muted); padding: 60px 20px;
+    border: 1px dashed var(--border); border-radius: 14px; font-size: 14px;
+  }
+  .sell-row { display: flex; gap: 8px; margin-top: 4px; }
+  .sell-row input {
+    flex: 1; padding: 8px 9px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--card2);
+    color: var(--text); font-size: 13px;
+  }
+  .sell-btn {
+    padding: 8px 14px; border: 1px solid var(--amber);
+    background: rgba(245,158,11,0.12); color: var(--amber);
+    border-radius: 7px; font-size: 12px; font-weight: bold;
+    cursor: pointer; white-space: nowrap;
+  }
+  .sell-btn:hover { background: rgba(245,158,11,0.22); }
+  .sold-section { margin-top: 34px; }
+  .sold-section h2 { font-size: 18px; margin: 0 0 14px; }
+  .sold-table-wrap {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; overflow-x: auto;
+  }
+  table.sold-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 600px; }
+  table.sold-table th, table.sold-table td {
+    padding: 12px 14px; text-align: right; border-bottom: 1px solid var(--border);
+  }
+  table.sold-table th { color: var(--muted); font-size: 11px; font-weight: normal; background: var(--card2); }
+  table.sold-table tr:last-child td { border-bottom: none; }
+  table.sold-table .pos { color: var(--green); font-weight: bold; }
+  table.sold-table .neg { color: var(--red); font-weight: bold; }
+  table.sold-table .del-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    width: 24px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  table.sold-table .del-btn:hover { color: var(--red); border-color: var(--red); }
+  .sold-totals { padding: 12px 14px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--border); }
+  .sold-totals span { font-weight: bold; }
+
+  .config-banner {
+    background: rgba(239,68,68,0.1);
+    border: 1px solid var(--red);
+    color: #fca5a5;
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .config-banner code {
+    background: rgba(0,0,0,0.3);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .conn-status {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .conn-status.ok { color: var(--green); }
+  .conn-status.err { color: var(--red); }
+
+  .candidates-section { margin-top: 34px; margin-bottom: 34px; }
+  .candidates-section h2 { font-size: 18px; margin: 0 0 4px; }
+  .candidates-sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .cand-table-wrap {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; overflow-x: auto;
+  }
+  table.cand-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 700px; }
+  table.cand-table th, table.cand-table td {
+    padding: 12px 14px; text-align: right; border-bottom: 1px solid var(--border);
+  }
+  table.cand-table th { color: var(--muted); font-size: 11px; font-weight: normal; background: var(--card2); }
+  table.cand-table tr:last-child td { border-bottom: none; }
+  table.cand-table tr:hover { background: rgba(56,189,248,0.05); }
+  .chart-btn {
+    padding: 6px 12px; border: 1px solid var(--accent);
+    background: rgba(56,189,248,0.1); color: var(--accent);
+    border-radius: 7px; font-size: 12px; font-weight: bold; cursor: pointer;
+  }
+  .chart-btn:hover { background: rgba(56,189,248,0.2); }
+  .track-btn {
+    padding: 6px 12px; border: 1px solid var(--green);
+    background: rgba(34,197,94,0.1); color: var(--green);
+    border-radius: 7px; font-size: 12px; font-weight: bold; cursor: pointer;
+    margin-right: 6px;
+  }
+  .track-btn:hover { background: rgba(34,197,94,0.2); }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); z-index: 100;
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal-box {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; width: 100%; max-width: 900px;
+    padding: 18px;
+  }
+  .modal-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+  }
+  .modal-top h3 { margin: 0; font-size: 17px; }
+  .modal-close {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    width: 30px; height: 30px; border-radius: 8px; cursor: pointer; font-size: 15px;
+  }
+  .modal-close:hover { color: var(--red); border-color: var(--red); }
+  #tvChartContainer { height: 480px; border-radius: 10px; overflow: hidden; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>דשבורד מניות</h1>
+      <div class="subtitle">מחובר ל-Supabase — נתונים נשמרים בענן ונגישים מכל מכשיר</div>
+    </div>
+    <button class="add-btn" id="addBtn" onclick="addStock()" disabled>+ הוספת מניה</button>
+  </header>
+
+  <div class="config-banner" id="configBanner" style="display:none;">
+    ⚠️ <strong>צריך להגדיר חיבור ל-Supabase.</strong><br>
+    בראש קובץ ה-HTML, בתוך תגית <code>&lt;script&gt;</code>, מלא את הערכים:<br>
+    <code>SUPABASE_URL</code> ו-<code>SUPABASE_ANON_KEY</code> — את שניהם תמצא ב-Supabase Studio תחת
+    Settings → API בפרויקט שלך. ודא שהרצת קודם את סקריפט ה-SQL ליצירת הטבלאות.
+  </div>
+
+  <div class="live-row" style="margin-bottom:18px;">
+    <span id="lastUpdateText" class="conn-status">מתחבר ל-Supabase...</span>
+    <button class="add-btn" style="padding:6px 14px; font-size:12px;" onclick="fetchAllPrices()">🔄 רענן שערים עכשיו</button>
+  </div>
+
+  <div class="summary-bar" id="summaryBar" style="display:none;">
+    <div class="summary-card"><div class="label">סה"כ מניות</div><div class="value" id="sumCount">0</div></div>
+    <div class="summary-card"><div class="label">סה"כ השקעה</div><div class="value" id="sumInvested">-</div></div>
+    <div class="summary-card"><div class="label">שווי כולל היום</div><div class="value" id="sumValueToday">-</div></div>
+    <div class="summary-card"><div class="label">רווח/הפסד כולל (₪/$)</div><div class="value" id="sumPnlAmount">-</div></div>
+    <div class="summary-card"><div class="label">רווח/הפסד ממוצע (%)</div><div class="value" id="sumPnlPct">-</div></div>
+    <div class="summary-card"><div class="label">קרובות ל-Stop Loss (מתחת ל-3%)</div><div class="value" id="sumNearStop">0</div></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  <div class="empty-state" id="emptyState">אין עדיין מניות. לחץ על "+ הוספת מניה" כדי להתחיל.</div>
+
+  <div class="sold-section" id="soldSection" style="display:none;">
+    <h2>מניות שנמכרו</h2>
+    <div class="sold-table-wrap">
+      <table class="sold-table">
+        <thead>
+          <tr>
+            <th>טיקר</th><th>שער קנייה</th><th>שער מכירה</th><th>כמות</th>
+            <th>רווח/הפסד %</th><th>רווח/הפסד</th><th>תאריך מכירה</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="soldTableBody"></tbody>
+      </table>
+      <div class="sold-totals" id="soldTotals"></div>
+    </div>
+  </div>
+
+  <div class="candidates-section">
+    <h2>מועמדות לכניסה</h2>
+    <div class="candidates-sub" id="candidatesSub">תוצאות הסינון היומי (SMA20 חוצה SMA50, מחיר מעל SMA200, RSI&lt;60, ווליום ותנאי 52W High)</div>
+    <div class="cand-table-wrap">
+      <table class="cand-table">
+        <thead>
+          <tr>
+            <th>טיקר</th><th>מחיר</th><th>SMA20</th><th>SMA50</th><th>SMA200</th>
+            <th>RSI(14)</th><th>% משיא 52W</th><th>תאריך סריקה</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="candTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="chartModal">
+  <div class="modal-box">
+    <div class="modal-top">
+      <h3 id="chartModalTitle">גרף</h3>
+      <button class="modal-close" onclick="closeChart()">✕</button>
+    </div>
+    <div id="tvChartContainer"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// SUPABASE CONFIG — מלא כאן את הפרטים מתוך Supabase Studio
+// Settings → API → Project URL / anon public key
+// ============================================================
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
+// ============================================================
+
+let sb = null;
+let stocks = [];
+let soldStocks = [];
+const isConfigured = !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_ANON_KEY.includes("YOUR-ANON-KEY");
+
+async function init() {
+  if (!isConfigured) {
+    document.getElementById('configBanner').style.display = 'block';
+    document.getElementById('lastUpdateText').textContent = 'לא מחובר — נא להגדיר SUPABASE_URL ו-SUPABASE_ANON_KEY';
+    document.getElementById('lastUpdateText').className = 'conn-status err';
+    return;
+  }
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  document.getElementById('addBtn').disabled = false;
+  await loadAll();
+}
+
+async function loadAll() {
+  const statusEl = document.getElementById('lastUpdateText');
+  const { data: stocksData, error: stocksErr } = await sb.from('stocks').select('*').order('created_at');
+  const { data: soldData, error: soldErr } = await sb.from('sold_stocks').select('*').order('sold_at', { ascending: false });
+
+  if (stocksErr || soldErr) {
+    statusEl.textContent = 'שגיאת חיבור ל-Supabase — בדוק URL/Key ואת מדיניות ה-RLS';
+    statusEl.className = 'conn-status err';
+    console.error(stocksErr || soldErr);
+    return;
+  }
+
+  stocks = (stocksData || []).map(row => ({
+    id: row.id, ticker: row.ticker || '', current: row.current ?? '', purchase: row.purchase ?? '',
+    quantity: row.quantity ?? '', stopLoss: row.stop_loss ?? '', takeProfit: row.take_profit ?? '',
+    autoUpdate: row.auto_update || false, marketState: null, fetchError: false
+  }));
+  soldStocks = (soldData || []).map(row => ({
+    id: row.id, ticker: row.ticker, purchase: row.purchase, sellPrice: row.sell_price,
+    quantity: row.quantity, date: new Date(row.sold_at).toLocaleDateString('he-IL')
+  }));
+
+  statusEl.textContent = 'מחובר ל-Supabase ✓';
+  statusEl.className = 'conn-status ok';
+  render();
+  loadCandidates();
+}
+
+async function loadCandidates() {
+  const { data, error } = await sb
+    .from('screener_results')
+    .select('*')
+    .order('scan_date', { ascending: false })
+    .order('pct_from_52w_high', { ascending: true })
+    .limit(100);
+
+  const body = document.getElementById('candTableBody');
+  const sub = document.getElementById('candidatesSub');
+
+  if (error) {
+    sub.textContent = 'שגיאה בטעינת המועמדות: ' + error.message;
+    return;
+  }
+  if (!data || data.length === 0) {
+    body.innerHTML = `<tr><td colspan="9" style="color:var(--muted);">אין עדיין תוצאות סריקה. ה-GitHub Action ירוץ אוטומטית כל יום מסחר.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = data.map(row => `
+    <tr>
+      <td><strong>${row.ticker}</strong></td>
+      <td>${row.price}</td>
+      <td>${row.sma20}</td>
+      <td>${row.sma50}</td>
+      <td>${row.sma200}</td>
+      <td>${row.rsi14}</td>
+      <td>${row.pct_from_52w_high}%</td>
+      <td>${row.scan_date}</td>
+      <td>
+        <button class="chart-btn" onclick="openChart('${row.ticker}')">📈 גרף</button>
+        <button class="track-btn" onclick="addFromCandidate('${row.ticker}', ${row.price})">+ עקוב</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openChart(ticker) {
+  document.getElementById('chartModalTitle').textContent = ticker + ' — SMA 20/50/200';
+  document.getElementById('chartModal').classList.add('show');
+  document.getElementById('tvChartContainer').innerHTML = '';
+
+  new TradingView.widget({
+    container_id: 'tvChartContainer',
+    autosize: true,
+    symbol: ticker,
+    interval: 'D',
+    timezone: 'Etc/UTC',
+    theme: 'dark',
+    style: '1',
+    locale: 'he_IL',
+    toolbar_bg: '#1e293b',
+    enable_publishing: false,
+    hide_side_toolbar: false,
+    studies: [
+      { id: 'MASimple@tv-basicstudies', inputs: { length: 20 } },
+      { id: 'MASimple@tv-basicstudies', inputs: { length: 50 } },
+      { id: 'MASimple@tv-basicstudies', inputs: { length: 200 } }
+    ]
+  });
+}
+
+function closeChart() {
+  document.getElementById('chartModal').classList.remove('show');
+  document.getElementById('tvChartContainer').innerHTML = '';
+}
+
+async function addFromCandidate(ticker, price) {
+  const { data, error } = await sb.from('stocks').insert({ ticker, current: price }).select().single();
+  if (error) { alert('שגיאה בהוספה: ' + error.message); return; }
+  stocks.push({ id: data.id, ticker, current: price, purchase: '', quantity: '', stopLoss: '', takeProfit: '', autoUpdate: false, marketState: null, fetchError: false });
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function addStock() {
+  const { data, error } = await sb.from('stocks').insert({}).select().single();
+  if (error) { alert('שגיאה בהוספת מניה: ' + error.message); return; }
+  stocks.push({ id: data.id, ticker: '', current: '', purchase: '', quantity: '', stopLoss: '', takeProfit: '', autoUpdate: false, marketState: null, fetchError: false });
+  render();
+}
+
+async function removeStock(id) {
+  const { error } = await sb.from('stocks').delete().eq('id', id);
+  if (error) { alert('שגיאה במחיקה: ' + error.message); return; }
+  stocks = stocks.filter(s => s.id !== id);
+  render();
+}
+
+const dbFieldMap = { stopLoss: 'stop_loss', takeProfit: 'take_profit', autoUpdate: 'auto_update' };
+
+async function updateField(id, field, value) {
+  const s = stocks.find(s => s.id === id);
+  if (s) s[field] = value;
+  render();
+  const dbField = dbFieldMap[field] || field;
+  const payload = {};
+  payload[dbField] = (field === 'ticker') ? value : (value === '' ? null : parseFloat(value));
+  const { error } = await sb.from('stocks').update(payload).eq('id', id);
+  if (error) console.error('update failed', error);
+}
+
+async function toggleAutoUpdate(id, checked) {
+  const s = stocks.find(s => s.id === id);
+  if (!s) return;
+  s.autoUpdate = checked;
+  s.fetchError = false;
+  render();
+  await sb.from('stocks').update({ auto_update: checked }).eq('id', id);
+  if (checked && s.ticker) fetchPrice(s);
+}
+
+async function sellStock(id) {
+  const s = stocks.find(s => s.id === id);
+  if (!s) return;
+  const sellPriceInput = document.getElementById('sellPrice_' + id);
+  const sellPrice = parseFloat(sellPriceInput.value);
+  if (isNaN(sellPrice) || sellPrice <= 0) {
+    sellPriceInput.style.borderColor = 'var(--red)';
+    return;
+  }
+  const purchase = parseFloat(s.purchase);
+  const quantity = parseFloat(s.quantity);
+
+  const { data, error } = await sb.from('sold_stocks').insert({
+    ticker: s.ticker || '(ללא שם)',
+    purchase: isNaN(purchase) ? null : purchase,
+    sell_price: sellPrice,
+    quantity: isNaN(quantity) ? null : quantity
+  }).select().single();
+  if (error) { alert('שגיאה בשמירת המכירה: ' + error.message); return; }
+
+  await sb.from('stocks').delete().eq('id', id);
+
+  soldStocks.unshift({
+    id: data.id, ticker: data.ticker, purchase: data.purchase,
+    sellPrice: data.sell_price, quantity: data.quantity,
+    date: new Date(data.sold_at).toLocaleDateString('he-IL')
+  });
+  stocks = stocks.filter(st => st.id !== id);
+  render();
+}
+
+async function deleteSold(id) {
+  const { error } = await sb.from('sold_stocks').delete().eq('id', id);
+  if (error) { alert('שגיאה במחיקה: ' + error.message); return; }
+  soldStocks = soldStocks.filter(s => s.id !== id);
+  renderSoldTable();
+}
+
+function computeStats(s) {
+  const current = parseFloat(s.current);
+  const purchase = parseFloat(s.purchase);
+  const quantity = parseFloat(s.quantity);
+  const stopLoss = parseFloat(s.stopLoss);
+  const takeProfit = parseFloat(s.takeProfit);
+  const stats = { valid: !isNaN(current) && current > 0 };
+  if (!stats.valid) return stats;
+  if (!isNaN(stopLoss)) stats.stopPct = ((current - stopLoss) / current) * 100;
+  if (!isNaN(takeProfit)) stats.profitPct = ((takeProfit - current) / current) * 100;
+  if (!isNaN(purchase) && purchase > 0) {
+    stats.pnlPct = ((current - purchase) / purchase) * 100;
+    if (!isNaN(quantity) && quantity > 0) stats.pnlAmount = (current - purchase) * quantity;
+  }
+  if (!isNaN(stopLoss) && !isNaN(takeProfit)) {
+    const lo = Math.min(stopLoss, takeProfit);
+    const hi = Math.max(stopLoss, takeProfit);
+    stats.barPos = hi !== lo ? Math.max(0, Math.min(100, ((current - lo) / (hi - lo)) * 100)) : 50;
+  }
+  return stats;
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  const emptyState = document.getElementById('emptyState');
+  const summaryBar = document.getElementById('summaryBar');
+  emptyState.style.display = stocks.length === 0 ? 'block' : 'none';
+  summaryBar.style.display = stocks.length === 0 ? 'none' : 'grid';
+
+  grid.innerHTML = stocks.map(s => {
+    const stats = computeStats(s);
+    return `
+    <div class="stock-card">
+      <div class="card-top">
+        <input class="ticker-input" placeholder="שם המניה / טיקר" value="${s.ticker}"
+          onchange="updateField('${s.id}', 'ticker', this.value)">
+        <button class="remove-btn" onclick="removeStock('${s.id}')" title="הסר">✕</button>
+      </div>
+      <div class="live-row">
+        <label class="live-toggle">
+          <input type="checkbox" ${s.autoUpdate ? 'checked' : ''} onchange="toggleAutoUpdate('${s.id}', this.checked)">
+          <span class="live-dot ${s.autoUpdate && !s.fetchError ? 'on' : ''}"></span>
+          עדכון אוטומטי (כולל Pre/After Market)
+        </label>
+        ${s.marketState ? `<span class="market-badge ${s.marketState.cls}">${s.marketState.label}</span>` : ''}
+      </div>
+      <div class="field-grid">
+        <div class="field"><label>שער נוכחי</label>
+          <input type="number" step="any" value="${s.current}" placeholder="150" onchange="updateField('${s.id}', 'current', this.value)"></div>
+        <div class="field"><label>שער קנייה</label>
+          <input type="number" step="any" value="${s.purchase}" placeholder="145" onchange="updateField('${s.id}', 'purchase', this.value)"></div>
+        <div class="field"><label>כמות מניות</label>
+          <input type="number" step="any" value="${s.quantity}" placeholder="10" onchange="updateField('${s.id}', 'quantity', this.value)"></div>
+        <div class="field"><label>Stop Loss</label>
+          <input type="number" step="any" value="${s.stopLoss}" placeholder="140" onchange="updateField('${s.id}', 'stopLoss', this.value)"></div>
+        <div class="field full"><label>Take Profit</label>
+          <input type="number" step="any" value="${s.takeProfit}" placeholder="170" onchange="updateField('${s.id}', 'takeProfit', this.value)"></div>
+      </div>
+      <div class="divider"></div>
+      ${stats.valid ? `
+        ${stats.pnlPct !== undefined ? `
+          <div class="stat-row"><span class="stat-label">${stats.pnlPct >= 0 ? 'רווח מהקנייה' : 'הפסד מהקנייה'}</span>
+          <span class="stat-value ${stats.pnlPct >= 0 ? 'green' : 'red'}">${stats.pnlPct >= 0 ? '+' : ''}${stats.pnlPct.toFixed(2)}%${stats.pnlAmount !== undefined ? ` (${stats.pnlAmount >= 0 ? '+' : ''}${stats.pnlAmount.toFixed(2)})` : ''}</span></div>` : ''}
+        ${stats.stopPct !== undefined ? `
+          <div class="stat-row"><span class="stat-label">מרחק מ-Stop Loss</span><span class="stat-value red">${stats.stopPct.toFixed(2)}%</span></div>` : ''}
+        ${stats.profitPct !== undefined ? `
+          <div class="stat-row"><span class="stat-label">מרחק מ-Take Profit</span><span class="stat-value green">${stats.profitPct.toFixed(2)}%</span></div>` : ''}
+        ${stats.barPos !== undefined ? `
+          <div class="bar-wrap"><div class="bar-fill"></div><div class="bar-marker" style="left:${stats.barPos}%;"></div></div>
+          <div class="bar-labels"><span>TP: ${s.takeProfit}</span><span>נוכחי: ${s.current}</span><span>SL: ${s.stopLoss}</span></div>` : ''}
+      ` : `<div class="stat-row"><span class="stat-label">מלא שער נוכחי כדי לראות נתונים</span></div>`}
+      <div class="divider"></div>
+      <div class="sell-row">
+        <input type="number" step="any" id="sellPrice_${s.id}" placeholder="מכרתי ב...">
+        <button class="sell-btn" onclick="sellStock('${s.id}')">סמן כנמכר</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  updateSummary();
+  renderSoldTable();
+}
+
+function updateSummary() {
+  document.getElementById('sumCount').textContent = stocks.length;
+  let totalAmount = 0, hasAmount = false, pctSum = 0, pctCount = 0, nearStop = 0;
+  let totalInvested = 0, hasInvested = false, totalValueToday = 0, hasValueToday = false;
+
+  stocks.forEach(s => {
+    const stats = computeStats(s);
+    const purchase = parseFloat(s.purchase);
+    const quantity = parseFloat(s.quantity);
+    const current = parseFloat(s.current);
+    if (!isNaN(purchase) && !isNaN(quantity) && quantity > 0) {
+      totalInvested += purchase * quantity; hasInvested = true;
+      if (!isNaN(current)) { totalValueToday += current * quantity; hasValueToday = true; }
+    }
+    if (!stats.valid) return;
+    if (stats.pnlAmount !== undefined) { totalAmount += stats.pnlAmount; hasAmount = true; }
+    if (stats.pnlPct !== undefined) { pctSum += stats.pnlPct; pctCount++; }
+    if (stats.stopPct !== undefined && stats.stopPct <= 3) nearStop++;
+  });
+
+  document.getElementById('sumInvested').textContent = hasInvested ? totalInvested.toFixed(2) : '-';
+  document.getElementById('sumValueToday').textContent = hasValueToday ? totalValueToday.toFixed(2) : '-';
+  const amountEl = document.getElementById('sumPnlAmount');
+  amountEl.textContent = hasAmount ? (totalAmount >= 0 ? '+' : '') + totalAmount.toFixed(2) : '-';
+  if (hasAmount) amountEl.style.color = totalAmount >= 0 ? 'var(--green)' : 'var(--red)';
+  const pctEl = document.getElementById('sumPnlPct');
+  if (pctCount > 0) {
+    const avg = pctSum / pctCount;
+    pctEl.textContent = (avg >= 0 ? '+' : '') + avg.toFixed(2) + '%';
+    pctEl.style.color = avg >= 0 ? 'var(--green)' : 'var(--red)';
+  } else { pctEl.textContent = '-'; pctEl.style.color = 'var(--text)'; }
+  const nearEl = document.getElementById('sumNearStop');
+  nearEl.textContent = nearStop;
+  nearEl.style.color = nearStop > 0 ? 'var(--red)' : 'var(--text)';
+}
+
+function renderSoldTable() {
+  const section = document.getElementById('soldSection');
+  const body = document.getElementById('soldTableBody');
+  const totalsEl = document.getElementById('soldTotals');
+  section.style.display = soldStocks.length === 0 ? 'none' : 'block';
+  if (soldStocks.length === 0) return;
+
+  let totalAmount = 0, hasAmount = false;
+  body.innerHTML = soldStocks.map(s => {
+    let pnlPctText = '-', pnlAmountText = '-', pnlClass = '';
+    if (s.purchase != null && s.purchase > 0) {
+      const pnlPct = ((s.sellPrice - s.purchase) / s.purchase) * 100;
+      pnlClass = pnlPct >= 0 ? 'pos' : 'neg';
+      pnlPctText = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
+      if (s.quantity != null && s.quantity > 0) {
+        const amount = (s.sellPrice - s.purchase) * s.quantity;
+        pnlAmountText = (amount >= 0 ? '+' : '') + amount.toFixed(2);
+        totalAmount += amount; hasAmount = true;
+      }
+    }
+    return `<tr>
+      <td>${s.ticker}</td><td>${s.purchase != null ? s.purchase : '-'}</td><td>${s.sellPrice}</td>
+      <td>${s.quantity != null ? s.quantity : '-'}</td><td class="${pnlClass}">${pnlPctText}</td>
+      <td class="${pnlClass}">${pnlAmountText}</td><td>${s.date}</td>
+      <td><button class="del-btn" onclick="deleteSold('${s.id}')" title="מחק">✕</button></td>
+    </tr>`;
+  }).join('');
+
+  totalsEl.innerHTML = hasAmount
+    ? `סה"כ רווח/הפסד ממומש: <span style="color:${totalAmount >= 0 ? 'var(--green)' : 'var(--red)'}">${totalAmount >= 0 ? '+' : ''}${totalAmount.toFixed(2)}</span>`
+    : '';
+}
+
+// ---- Live price fetching (Yahoo Finance public chart endpoint, best-effort) ----
+async function fetchPrice(s) {
+  if (!s.ticker) return;
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.ticker)}?includePrePost=true`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('bad response');
+    const data = await res.json();
+    const result = data?.chart?.result?.[0]?.meta;
+    if (!result) throw new Error('no data');
+    const state = result.marketState;
+    let price = result.regularMarketPrice, label = 'מסחר רציף', cls = 'regular';
+    if (state === 'PRE' && result.preMarketPrice != null) { price = result.preMarketPrice; label = 'טרום-מסחר'; cls = 'pre'; }
+    else if ((state === 'POST' || state === 'POSTPOST') && result.postMarketPrice != null) { price = result.postMarketPrice; label = 'אחרי-מסחר'; cls = 'post'; }
+    else if (state === 'CLOSED' || state === 'PREPRE') { label = 'שוק סגור'; cls = 'closed'; }
+    if (price != null) {
+      s.current = price;
+      s.marketState = { label, cls };
+      s.fetchError = false;
+      await sb.from('stocks').update({ current: price }).eq('id', s.id);
+    } else throw new Error('no price');
+  } catch (err) {
+    s.fetchError = true;
+    s.marketState = { label: 'עדכון נכשל - הזן ידנית', cls: 'error' };
+  }
+  render();
+}
+
+async function fetchAllPrices() {
+  if (!isConfigured) return;
+  const withTicker = stocks.filter(s => s.ticker);
+  document.getElementById('lastUpdateText').textContent = 'מרענן...';
+  await Promise.all(withTicker.map(s => fetchPrice(s)));
+  document.getElementById('lastUpdateText').textContent = 'עודכן לאחרונה: ' + new Date().toLocaleTimeString('he-IL');
+  document.getElementById('lastUpdateText').className = 'conn-status ok';
+}
+
+setInterval(() => {
+  if (!isConfigured) return;
+  const autoStocks = stocks.filter(s => s.autoUpdate && s.ticker);
+  if (autoStocks.length === 0) return;
+  Promise.all(autoStocks.map(s => fetchPrice(s))).then(() => {
+    document.getElementById('lastUpdateText').textContent = 'עודכן אוטומטית: ' + new Date().toLocaleTimeString('he-IL');
+    document.getElementById('lastUpdateText').className = 'conn-status ok';
+  });
+}, 30000);
+
+init();
+</script>
+</body>
+</html>
