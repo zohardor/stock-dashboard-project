@@ -12,14 +12,22 @@ jobs:
   run-screener:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
       - name: Install dependencies
         run: pip install -r screener/requirements.txt
+
+      - name: Debug secrets (temporary - remove after diagnosing)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "URL length: ${#SUPABASE_URL}"
+          echo "KEY length: ${#SUPABASE_SERVICE_KEY}"
 
       - name: Run screener
         env:
