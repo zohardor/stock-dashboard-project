@@ -16,6 +16,7 @@ import os
 import sys
 import time
 from datetime import date
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 import yfinance as yf
@@ -24,23 +25,48 @@ import pandas as pd
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
+NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
+OTHER_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"
 SP500_LIST_URL = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/master/data/constituents.csv"
 
 MIN_AVG_VOLUME = 2_000_000
 MAX_PCT_BELOW_52W_HIGH = 10.0  # אחוזים
 RSI_MAX = 60
+CROSSOVER_LOOKBACK_DAYS = 3  # "חצה כלפי מעלה" בטווח כמה ימי מסחר אחרונים, לא רק היום ממש
+MAX_WORKERS = 12  # הרצה מקבילית כדי לעמוד בזמן סביר על אלפי טיקרים
 
 
 def get_universe():
-    """מחזיר רשימת טיקרים לסריקה (S&P 500 כברירת מחדל)."""
+    """מחזיר רשימת טיקרים לסריקה: כל הנאסד"ק + NYSE/AMEX (ללא קרנות/ETF)."""
     try:
-        df = pd.read_csv(SP500_LIST_URL)
-        tickers = df["Symbol"].str.replace(".", "-", regex=False).tolist()
-        return tickers
+        tickers = set()
+
+        nas = pd.read_csv(NASDAQ_LISTED_URL, sep="|")
+        nas = nas[nas["Test Issue"] == "N"]
+        if "ETF" in nas.columns:
+            nas = nas[nas["ETF"] == "N"]
+        tickers.update(nas["Symbol"].dropna().tolist())
+
+        other = pd.read_csv(OTHER_LISTED_URL, sep="|")
+        other = other[other["Test Issue"] == "N"]
+        if "ETF" in other.columns:
+            other = other[other["ETF"] == "N"]
+        sym_col = "ACT Symbol" if "ACT Symbol" in other.columns else "Symbol"
+        tickers.update(other[sym_col].dropna().tolist())
+
+        tickers = {t.replace(".", "-") for t in tickers if isinstance(t, str) and t.strip() and "$" not in t}
+        tickers = sorted(tickers)
+        if len(tickers) > 200:
+            return tickers
+        raise ValueError("universe too small, falling back")
     except Exception as e:
-        print(f"Failed to fetch S&P 500 list: {e}", file=sys.stderr)
-        # רשימת גיבוי קטנה למקרה שהמקור לא זמין
-        return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
+        print(f"Failed to fetch full market list ({e}), falling back to S&P 500", file=sys.stderr)
+        try:
+            df = pd.read_csv(SP500_LIST_URL)
+            return df["Symbol"].str.replace(".", "-", regex=False).tolist()
+        except Exception as e2:
+            print(f"Failed to fetch S&P 500 list too: {e2}", file=sys.stderr)
+            return ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"]
 
 
 def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
@@ -87,7 +113,12 @@ def evaluate_ticker(ticker: str):
 
         pct_from_high = ((last_high - last_price) / last_high) * 100
 
-        crossed_up = (prev_sma20 <= prev_sma50) and (last_sma20 > last_sma50)
+        # crossover: SMA20 מעל SMA50 עכשיו, וב-CROSSOVER_LOOKBACK_DAYS האחרונים היה מתחת בשלב כלשהו
+        # (ולא רק אתמול-להיום, כדי להתאים יותר להתנהגות סקרינרים כמו Finviz)
+        recent20 = sma20.iloc[-(CROSSOVER_LOOKBACK_DAYS + 1):]
+        recent50 = sma50.iloc[-(CROSSOVER_LOOKBACK_DAYS + 1):]
+        was_below = (recent20.iloc[:-1] <= recent50.iloc[:-1]).any()
+        crossed_up = was_below and (last_sma20 > last_sma50)
 
         conditions = [
             last_avg_vol >= MIN_AVG_VOLUME,
@@ -149,14 +180,22 @@ def main():
     print(f"Scanning {len(universe)} tickers...")
 
     matches = []
-    for i, ticker in enumerate(universe):
-        result = evaluate_ticker(ticker)
-        if result:
-            matches.append(result)
-            print(f"  MATCH: {ticker}")
-        if i % 50 == 0:
-            print(f"  ...{i}/{len(universe)}")
-        time.sleep(0.05)  # קצב עדין כדי לא להעמיס על Yahoo Finance
+    done = 0
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {pool.submit(evaluate_ticker, t): t for t in universe}
+        for future in as_completed(futures):
+            ticker = futures[future]
+            done += 1
+            try:
+                result = future.result()
+            except Exception as e:
+                print(f"Error on {ticker}: {e}", file=sys.stderr)
+                result = None
+            if result:
+                matches.append(result)
+                print(f"  MATCH: {ticker}")
+            if done % 200 == 0:
+                print(f"  ...{done}/{len(universe)}")
 
     print(f"Found {len(matches)} matching tickers.")
     push_to_supabase(matches)
