@@ -356,6 +356,7 @@
   <div class="candidates-section">
     <h2>מועמדות לכניסה</h2>
     <div class="candidates-sub" id="candidatesSub">תוצאות הסינון היומי (SMA20 חוצה SMA50, מחיר מעל SMA200, RSI&lt;60, ווליום ותנאי 52W High)</div>
+    <button class="add-btn" style="margin-bottom:14px; padding:8px 16px; font-size:13px;" onclick="runScreenerNow()">⚡ הרץ סקרינר עכשיו</button>
     <div class="cand-table-wrap">
       <table class="cand-table">
         <thead>
@@ -387,6 +388,10 @@
 // ============================================================
 const SUPABASE_URL = "https://ncowqwzfizhqhpfstuka.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jb3dxd3pmaXpocWhwZnN0dWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczMjMzNzgsImV4cCI6MjEwMjg5OTM3OH0.XFWBKJNluVXD9NuiZ4IvYciIULXt6Rwh87zaIcEbQIQ";
+
+// מלא כאן את שם המשתמש/ארגון והריפו שלך ב-GitHub, כדי שכפתור "הרץ סקרינר עכשיו" יוביל למקום הנכון
+const GITHUB_OWNER = "YOUR-GITHUB-USERNAME";
+const GITHUB_REPO = "YOUR-REPO-NAME";
 // ============================================================
 
 let sb = null;
@@ -508,6 +513,16 @@ async function addFromCandidate(ticker, price) {
   stocks.push({ id: data.id, ticker, current: price, purchase: '', quantity: '', stopLoss: '', takeProfit: '', autoUpdate: false, marketState: null, fetchError: false });
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function runScreenerNow() {
+  if (GITHUB_OWNER.includes('YOUR-GITHUB') || GITHUB_REPO.includes('YOUR-REPO')) {
+    alert('קודם צריך למלא GITHUB_OWNER ו-GITHUB_REPO בראש קובץ ה-HTML (בתוך תגית ה-script).');
+    return;
+  }
+  const url = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/screener.yml`;
+  window.open(url, '_blank');
+  alert('נפתח עמוד ה-Actions בכרטיסייה חדשה. שם לוחצים על "Run workflow" (בצד ימין למעלה) כדי להריץ מיד. הריצה אורכת כמה דקות — רענן את הדשבורד לאחר מכן כדי לראות תוצאות עדכניות.');
 }
 
 async function addStock() {
