@@ -33,7 +33,9 @@ MIN_AVG_VOLUME = 2_000_000
 MAX_PCT_BELOW_52W_HIGH = 10.0  # אחוזים
 RSI_MAX = 60
 CROSSOVER_LOOKBACK_DAYS = 3  # "חצה כלפי מעלה" בטווח כמה ימי מסחר אחרונים, לא רק היום ממש
-MAX_WORKERS = 12  # הרצה מקבילית כדי לעמוד בזמן סביר על אלפי טיקרים
+MAX_WORKERS = 3  # מקביליות נמוכה בכוונה כדי לא להיחסם ע"י Yahoo Finance (429)
+MAX_RETRIES = 3
+BASE_BACKOFF_SECONDS = 8
 
 
 def get_universe():
@@ -80,10 +82,28 @@ def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
     return rsi
 
 
+def fetch_history(ticker: str):
+    """שולף היסטוריה עם ניסיונות חוזרים והשהיה גוברת אם נתקלים ב-429."""
+    last_err = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            hist = yf.Ticker(ticker).history(period="15mo", interval="1d")
+            return hist
+        except Exception as e:
+            last_err = e
+            msg = str(e)
+            if "Too Many Requests" in msg or "Rate limited" in msg or "429" in msg:
+                wait = BASE_BACKOFF_SECONDS * (attempt + 1)
+                time.sleep(wait)
+                continue
+            raise
+    raise last_err
+
+
 def evaluate_ticker(ticker: str):
     try:
-        hist = yf.Ticker(ticker).history(period="15mo", interval="1d")
-        if hist.empty or len(hist) < 210:
+        hist = fetch_history(ticker)
+        if hist is None or hist.empty or len(hist) < 210:
             return None
 
         close = hist["Close"]
@@ -182,7 +202,10 @@ def main():
     matches = []
     done = 0
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-        futures = {pool.submit(evaluate_ticker, t): t for t in universe}
+        futures = {}
+        for t in universe:
+            futures[pool.submit(evaluate_ticker, t)] = t
+            time.sleep(0.15)  # קצב עדין כדי לא להציף את Yahoo Finance בבקשות
         for future in as_completed(futures):
             ticker = futures[future]
             done += 1
