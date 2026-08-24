@@ -390,8 +390,8 @@ const SUPABASE_URL = "https://ncowqwzfizhqhpfstuka.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5jb3dxd3pmaXpocWhwZnN0dWthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczMjMzNzgsImV4cCI6MjEwMjg5OTM3OH0.XFWBKJNluVXD9NuiZ4IvYciIULXt6Rwh87zaIcEbQIQ";
 
 // מלא כאן את שם המשתמש/ארגון והריפו שלך ב-GitHub, כדי שכפתור "הרץ סקרינר עכשיו" יוביל למקום הנכון
-const GITHUB_OWNER = "zohardor";
-const GITHUB_REPO = "stock-dashboard-project";
+const GITHUB_OWNER = "YOUR-GITHUB-USERNAME";
+const GITHUB_REPO = "YOUR-REPO-NAME";
 // ============================================================
 
 let sb = null;
@@ -756,10 +756,8 @@ function renderSoldTable() {
 async function fetchPrice(s) {
   if (!s.ticker) return;
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s.ticker)}?includePrePost=true`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('bad response');
-    const data = await res.json();
+    const { data, error } = await sb.functions.invoke('yahoo-quote', { body: { ticker: s.ticker } });
+    if (error) throw error;
     const result = data?.chart?.result?.[0]?.meta;
     if (!result) throw new Error('no data');
     const state = result.marketState;
