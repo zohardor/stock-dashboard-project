@@ -756,7 +756,7 @@ function renderSoldTable() {
 async function fetchPrice(s) {
   if (!s.ticker) return;
   try {
-    const { data, error } = await sb.functions.invoke('yahoo-quote', { body: { ticker: s.ticker } });
+    const { data, error } = await sb.functions.invoke('clever-api', { body: { ticker: s.ticker } });
     if (error) throw error;
     const result = data?.chart?.result?.[0]?.meta;
     if (!result) throw new Error('no data');
