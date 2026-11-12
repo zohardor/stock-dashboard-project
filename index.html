@@ -65,6 +65,12 @@
   }
   .summary-card .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
   .summary-card .value { font-size: 20px; font-weight: bold; }
+  .summary-card .sub { font-size: 13px; color: var(--muted); margin-top: 4px; min-height: 16px; }
+  .fx-input {
+    width: 100%; background: transparent; border: none; border-bottom: 1px dashed var(--border);
+    color: var(--text); font-size: 20px; font-weight: bold; padding: 0; font-family: inherit;
+  }
+  .fx-input:focus { outline: none; border-bottom-color: var(--accent); }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -327,8 +333,11 @@
 
   <div class="summary-bar" id="summaryBar" style="display:none;">
     <div class="summary-card"><div class="label">סה"כ מניות</div><div class="value" id="sumCount">0</div></div>
-    <div class="summary-card"><div class="label">סה"כ השקעה</div><div class="value" id="sumInvested">-</div></div>
-    <div class="summary-card"><div class="label">שווי כולל היום</div><div class="value" id="sumValueToday">-</div></div>
+    <div class="summary-card"><div class="label">סה"כ השקעה</div><div class="value" id="sumInvested">-</div><div class="sub" id="sumInvestedIls"></div></div>
+    <div class="summary-card"><div class="label">שווי כולל היום</div><div class="value" id="sumValueToday">-</div><div class="sub" id="sumValueTodayIls"></div></div>
+    <div class="summary-card"><div class="label">שער דולר (₪ ל-$1)</div>
+      <div class="value"><input type="number" step="0.001" class="fx-input" id="fxRate" placeholder="3.500" onchange="setManualFx(this.value)"></div>
+      <div class="sub" id="fxNote">טוען...</div></div>
     <div class="summary-card"><div class="label">רווח/הפסד כולל (₪/$)</div><div class="value" id="sumPnlAmount">-</div></div>
     <div class="summary-card"><div class="label">רווח/הפסד ממוצע (%)</div><div class="value" id="sumPnlPct">-</div></div>
     <div class="summary-card"><div class="label">קרובות ל-Stop Loss (מתחת ל-3%)</div><div class="value" id="sumNearStop">0</div></div>
@@ -397,6 +406,18 @@ const GITHUB_REPO = "stock-dashboard-project";
 let sb = null;
 let stocks = [];
 let soldStocks = [];
+
+// שער דולר-שקל: נשלף מ-Yahoo (ILS=X) דרך אותה Edge Function. אם השליפה נכשלת אפשר להזין ידנית בכרטיס "שער דולר".
+let fx = { rate: null, manual: false, error: false, time: null };
+
+const fmtNum = (n, d = 2) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const signOf = (n, d = 2) => (Math.round(n * 10 ** d) >= 0 ? '+' : '-');
+const fmtSigned = (n, d = 2) => signOf(n, d) + fmtNum(Math.abs(n), d);
+const fmtUsd = n => (n < 0 ? '-' : '') + '$' + fmtNum(Math.abs(n));
+const fmtIls = n => (n < 0 ? '-' : '') + '₪' + fmtNum(Math.abs(n));
+const fmtSignedUsd = n => signOf(n) + '$' + fmtNum(Math.abs(n));
+const ltr = html => `<span dir="ltr">${html}</span>`;
+
 const isConfigured = !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_ANON_KEY.includes("YOUR-ANON-KEY");
 
 async function init() {
@@ -437,6 +458,7 @@ async function loadAll() {
   statusEl.className = 'conn-status ok';
   render();
   loadCandidates();
+  fetchAllPrices(); // שערי מניות, שינוי יומי ושער דולר בטעינה
 }
 
 async function loadCandidates() {
@@ -543,7 +565,10 @@ const dbFieldMap = { stopLoss: 'stop_loss', takeProfit: 'take_profit', autoUpdat
 
 async function updateField(id, field, value) {
   const s = stocks.find(s => s.id === id);
-  if (s) s[field] = value;
+  if (s) {
+    s[field] = value;
+    if (field === 'ticker') s.prevClose = null; // סגירה קודמת שייכת לטיקר הקודם
+  }
   render();
   const dbField = dbFieldMap[field] || field;
   const payload = {};
@@ -608,6 +633,12 @@ function computeStats(s) {
   const takeProfit = parseFloat(s.takeProfit);
   const stats = { valid: !isNaN(current) && current > 0 };
   if (!stats.valid) return stats;
+  const prev = typeof s.prevClose === 'number' ? s.prevClose : NaN;
+  if (!isNaN(prev) && prev > 0) {
+    stats.dayChange = current - prev;
+    stats.dayPct = (stats.dayChange / prev) * 100;
+    if (!isNaN(quantity) && quantity > 0) stats.dayAmount = stats.dayChange * quantity;
+  }
   if (!isNaN(stopLoss)) stats.stopPct = ((current - stopLoss) / current) * 100;
   if (!isNaN(takeProfit)) stats.profitPct = ((takeProfit - current) / current) * 100;
   if (!isNaN(purchase) && purchase > 0) {
@@ -660,6 +691,11 @@ function render() {
       </div>
       <div class="divider"></div>
       ${stats.valid ? `
+        ${stats.dayPct !== undefined ? `
+          <div class="stat-row"><span class="stat-label">שינוי יומי</span>
+          <span class="stat-value ${stats.dayChange >= 0 ? 'green' : 'red'}">${ltr(`${fmtSigned(stats.dayPct)}% (${fmtSignedUsd(stats.dayChange)})`)}</span></div>
+          ${stats.dayAmount !== undefined ? `<div class="stat-row"><span class="stat-label">שינוי יומי בפוזיציה</span>
+          <span class="stat-value ${stats.dayAmount >= 0 ? 'green' : 'red'}">${ltr(fmtSignedUsd(stats.dayAmount))}</span></div>` : ''}` : ''}
         ${stats.pnlPct !== undefined ? `
           <div class="stat-row"><span class="stat-label">${stats.pnlPct >= 0 ? 'רווח מהקנייה' : 'הפסד מהקנייה'}</span>
           <span class="stat-value ${stats.pnlPct >= 0 ? 'green' : 'red'}">${stats.pnlPct >= 0 ? '+' : ''}${stats.pnlPct.toFixed(2)}%${stats.pnlAmount !== undefined ? ` (${stats.pnlAmount >= 0 ? '+' : ''}${stats.pnlAmount.toFixed(2)})` : ''}</span></div>` : ''}
@@ -703,8 +739,20 @@ function updateSummary() {
     if (stats.stopPct !== undefined && stats.stopPct <= 3) nearStop++;
   });
 
-  document.getElementById('sumInvested').textContent = hasInvested ? totalInvested.toFixed(2) : '-';
-  document.getElementById('sumValueToday').textContent = hasValueToday ? totalValueToday.toFixed(2) : '-';
+  const rate = fx.rate;
+  document.getElementById('sumInvested').innerHTML = hasInvested ? ltr(fmtUsd(totalInvested)) : '-';
+  document.getElementById('sumValueToday').innerHTML = hasValueToday ? ltr(fmtUsd(totalValueToday)) : '-';
+  const ilsText = (has, usd) => !has ? '' : (rate ? ltr(fmtIls(usd * rate)) : 'ממתין לשער דולר');
+  document.getElementById('sumInvestedIls').innerHTML = ilsText(hasInvested, totalInvested);
+  document.getElementById('sumValueTodayIls').innerHTML = ilsText(hasValueToday, totalValueToday);
+
+  const fxInput = document.getElementById('fxRate');
+  if (rate && document.activeElement !== fxInput) fxInput.value = rate.toFixed(3);
+  const fxNote = document.getElementById('fxNote');
+  if (fx.manual) fxNote.textContent = 'הוזן ידנית (רענון שערים יחזיר לשער חי)';
+  else if (rate && !fx.error) fxNote.textContent = 'Yahoo · עודכן ' + fx.time.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+  else if (rate) fxNote.textContent = 'עדכון נכשל — מוצג השער האחרון';
+  else fxNote.textContent = fx.error ? 'לא נטען — הזן שער ידנית' : 'טוען...';
   const amountEl = document.getElementById('sumPnlAmount');
   amountEl.textContent = hasAmount ? (totalAmount >= 0 ? '+' : '') + totalAmount.toFixed(2) : '-';
   if (hasAmount) amountEl.style.color = totalAmount >= 0 ? 'var(--green)' : 'var(--red)';
@@ -767,6 +815,8 @@ async function fetchPrice(s) {
     else if (state === 'CLOSED' || state === 'PREPRE') { label = 'שוק סגור'; cls = 'closed'; }
     if (price != null) {
       s.current = price;
+      const prev = result.previousClose ?? result.chartPreviousClose;
+      s.prevClose = typeof prev === 'number' ? prev : null;
       s.marketState = { label, cls };
       s.fetchError = false;
       await sb.from('stocks').update({ current: price }).eq('id', s.id);
@@ -778,11 +828,32 @@ async function fetchPrice(s) {
   render();
 }
 
+async function fetchFxRate(force) {
+  if (fx.manual && !force) return;
+  try {
+    const { data, error } = await sb.functions.invoke('clever-api', { body: { ticker: 'ILS=X' } });
+    if (error) throw error;
+    const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    if (typeof rate !== 'number' || rate < 1 || rate > 10) throw new Error('bad fx rate');
+    fx = { rate, manual: false, error: false, time: new Date() };
+  } catch (err) {
+    fx.error = true;
+  }
+  updateSummary();
+}
+
+function setManualFx(v) {
+  const r = parseFloat(v);
+  if (isNaN(r) || r <= 0) { fetchFxRate(true); return; }
+  fx.rate = r; fx.manual = true; fx.error = false;
+  updateSummary();
+}
+
 async function fetchAllPrices() {
   if (!isConfigured) return;
   const withTicker = stocks.filter(s => s.ticker);
   document.getElementById('lastUpdateText').textContent = 'מרענן...';
-  await Promise.all(withTicker.map(s => fetchPrice(s)));
+  await Promise.all([...withTicker.map(s => fetchPrice(s)), fetchFxRate(true)]);
   document.getElementById('lastUpdateText').textContent = 'עודכן לאחרונה: ' + new Date().toLocaleTimeString('he-IL');
   document.getElementById('lastUpdateText').className = 'conn-status ok';
 }
@@ -791,7 +862,7 @@ setInterval(() => {
   if (!isConfigured) return;
   const autoStocks = stocks.filter(s => s.autoUpdate && s.ticker);
   if (autoStocks.length === 0) return;
-  Promise.all(autoStocks.map(s => fetchPrice(s))).then(() => {
+  Promise.all([...autoStocks.map(s => fetchPrice(s)), fetchFxRate(false)]).then(() => {
     document.getElementById('lastUpdateText').textContent = 'עודכן אוטומטית: ' + new Date().toLocaleTimeString('he-IL');
     document.getElementById('lastUpdateText').className = 'conn-status ok';
   });
